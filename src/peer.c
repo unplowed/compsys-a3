@@ -940,7 +940,7 @@ void handle_inform_request(uint8_t* payload) {
  * Handle incoming connection
  * Per protocol: "each request gets response then connection closes"
  */
-void handle_client_connection(void* connfd_arg) {
+void* handle_client_connection(void* connfd_arg) {
     int connfd = *(int*)connfd_arg;
     free(connfd_arg);
 
@@ -949,7 +949,7 @@ void handle_client_connection(void* connfd_arg) {
     
     if (bytes_read < REQUEST_HEADER_LEN) {
         close(connfd);
-        return;
+        return NULL;
     }
 
     // Parse REQUEST per protocol specification
@@ -981,7 +981,7 @@ void handle_client_connection(void* connfd_arg) {
             char* error = "Malformed request";
             send_reply(connfd, STATUS_MALFORMED, (uint8_t*)error, strlen(error));
             close(connfd);
-            return;
+            return NULL;
         }
     }
 
@@ -1006,6 +1006,7 @@ void handle_client_connection(void* connfd_arg) {
     if (payload) free(payload);
     // Per protocol: "close connection after response"
     close(connfd);
+    return NULL;
 }
 
 /* ============================================================================
@@ -1099,7 +1100,7 @@ void* server_thread() {
         pthread_t handler_thread;
         int* connfd_ptr = malloc(sizeof(int));
         *connfd_ptr = connfd;
-        pthread_create(&handler_thread, NULL, (void*(*)(void*))handle_client_connection, connfd_ptr);
+        pthread_create(&handler_thread, NULL, handle_client_connection, connfd_ptr);
         pthread_detach(handler_thread);
     }
 
@@ -1143,7 +1144,7 @@ int main(int argc, char **argv) {
     }
 
     // Per protocol: "hard coded salts to make debugging easier"
-    char salt[SALT_LEN+1] = "0123456789ABCDEF\0";
+    char salt[SALT_LEN+1] = "0123456789ABCDEF";
     memcpy(my_address->salt, salt, SALT_LEN);
 
     // Per protocol: "user-remembered passwords salted and hashed"
