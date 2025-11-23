@@ -451,6 +451,13 @@ void remove_from_retrieving_list(char* filepath)
     COMMAND_REGISTER, response.status);
 
  }
+
+typedef struct block
+{
+    uint32_t length; // Length of payload
+    void* data;
+} block_t;
+
 /*
  * COMMAND 2: RETRIEVE
  * Request body: filename/filepath
@@ -528,6 +535,8 @@ void get_file_from_peer(char *peer_ip, int peer_port, char *to_get){
     hashdata_t expected_total_hash;
     int first_block = 1;
     int success = 1;
+    int blocks_recieved = 0;
+    block_t* data;
 
     // Multi-block receiving loop
     while (1) {
@@ -558,6 +567,7 @@ void get_file_from_peer(char *peer_ip, int peer_port, char *to_get){
         // Per protocol: "total hash is hash of total data across all blocks"
         if (first_block) {
             memcpy(expected_total_hash, response.total_hash, SHA256_HASH_SIZE);
+            data = malloc(sizeof(block_t) * response.total_blocks);
             first_block = 0;
         }
 
@@ -580,17 +590,32 @@ void get_file_from_peer(char *peer_ip, int peer_port, char *to_get){
                 break;
             }
 
-            fwrite(response.payload, 1, response.length, fp);
+            fprintf(stdout, "DEBUG\n");
+            fprintf(stdout, "Recieved block %i/%i (%i bytes)\n", response.block_num, response.total_blocks, response.length);
+
+            // fwrite(response.payload, 1, response.length, fp);
+            block_t block;
+            block.length = response.length;
+            block.data = malloc(response.length);
+            memcpy(block.data, response.payload, response.length);
+            data[response.block_num] = block;
             total_size += response.length;
+            blocks_recieved++;
         }
 
-        // Check if this is the last block
-        if (response.block_num + 1 == response.total_blocks) {
+        // Check if all blocks recieved
+        if (blocks_recieved == response.total_blocks) {
             free_peer_response(&response);
             break;
         }
 
         free_peer_response(&response);
+    }
+
+    // write data in order
+    
+    for (int i = 0; i < blocks_recieved; i++) {
+      fwrite(data[i].data, 1, data[i].length, fp);
     }
 
     fclose(fp);
@@ -602,6 +627,15 @@ void get_file_from_peer(char *peer_ip, int peer_port, char *to_get){
         get_file_sha(to_get, file_hash, SHA256_HASH_SIZE);
         if (memcmp(file_hash, expected_total_hash, SHA256_HASH_SIZE) != 0) {
             fprintf(stderr, "Total file hash mismatch\n");
+            fprintf(stderr, "Exp: ");
+            for (size_t i = 0; i < SHA256_HASH_SIZE; i++) {
+              fprintf(stderr, "%02x", (unsigned char)expected_total_hash[i]);
+            }
+            fprintf(stderr, "\nGot: ");
+            for (size_t i = 0; i < SHA256_HASH_SIZE; i++) {
+              fprintf(stderr, "%02x", (unsigned char)file_hash[i]);
+            }
+            fprintf(stderr, "\n");
             remove(to_get);
         } else {
             printf("File '%s' received successfully (%zu bytes)\n", to_get, total_size);
