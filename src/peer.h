@@ -31,6 +31,9 @@ typedef struct ReplyHeader {
 typedef struct NetworkAddress {
     char ip[IP_LEN];
     uint32_t port;
-    char salt[SALT_LEN];
+    char salt[SALT_LEN];              // Network-assigned salt (can change)
+    char original_salt[SALT_LEN];     // Original salt for user signature
     hashdata_t signature;
+    hashdata_t user_signature;
+    char password[PASSWORD_LEN];
 } NetworkAddress_t;

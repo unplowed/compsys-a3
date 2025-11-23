@@ -308,6 +308,14 @@ void remove_from_retrieving_list(char* filepath)
     hashdata_t signature;
     get_signature(password, salt, &signature);
 
+    // DEBUG 
+    printf("DEBUG REGISTER:\n");
+    printf("  password='%s'\n", password);
+    printf("  salt='%s'\n", salt);
+    printf("  signature bytes: %02x %02x %02x %02x...\n", 
+    (unsigned char)signature[0], (unsigned char)signature[1], 
+    (unsigned char)signature[2], (unsigned char)signature[3]);
+
     printf("Connecting to server at %s:%d\n", peer_ip, peer_port);
 
     char port_str[PORT_STR_LEN];
@@ -344,7 +352,7 @@ void remove_from_retrieving_list(char* filepath)
 
     // 4 bytes: Length = 0 --> (No body for register)
     uint32_t net_length = htonl(0);
-    memcpy(message + IP_LEN + PORT_LEN + SHA256_HASH_SIZE, &net_length, 4);
+    memcpy(message + IP_LEN + PORT_LEN + SHA256_HASH_SIZE + 4, &net_length, 4);
 
     compsys_helper_writen(peer_fd, message, REQUEST_HEADER_LEN);
 
@@ -409,7 +417,6 @@ void remove_from_retrieving_list(char* filepath)
             if (strcmp(ip, my_address->ip) == 0 && port == my_address->port) 
             {
                 memcpy(my_address->signature, peer_signature, SHA256_HASH_SIZE);
-                memcpy(my_address->salt, peer_salt, SALT_LEN);
             }
 
             // Avoiding duplicates
@@ -450,10 +457,18 @@ void remove_from_retrieving_list(char* filepath)
  * Response: File data (may be multi-block if large)
  * Protocol: "Messages limited to 8196 bytes including header and body"
  */
-void get_file_from_peer(char *peer_ip, int peer_port, char *password, 
-                        char *salt, char *to_get) {
+void get_file_from_peer(char *peer_ip, int peer_port, char *to_get){
+    // Regenerate signature from password to match Python's buggy verification
     hashdata_t signature;
-    get_signature(password, salt, &signature);
+    get_signature(my_address->password, my_address->original_salt, &signature);
+
+    // DEBUG - 
+    printf("DEBUG RETRIEVE:\n");
+    printf("  password='%s'\n", my_address->password);
+    printf("  original_salt='%s'\n", my_address->original_salt);
+    printf("  signature bytes: %02x %02x %02x %02x...\n", 
+    (unsigned char)signature[0], (unsigned char)signature[1], 
+    (unsigned char)signature[2], (unsigned char)signature[3]);
 
     printf("Connecting to server at %s:%d\n", peer_ip, peer_port);
 
@@ -1068,7 +1083,7 @@ void* client_thread() {
         char target_ip[IP_LEN];
         uint32_t target_port;
         get_random_peer(target_ip, &target_port);
-        get_file_from_peer(target_ip, target_port, password, my_address->salt, filepath);
+        get_file_from_peer(target_ip, target_port, filepath);
     }
 
     return NULL;
@@ -1145,12 +1160,20 @@ int main(int argc, char **argv) {
 
     // Per protocol: "hard coded salts to make debugging easier"
     char salt[SALT_LEN+1] = "0123456789ABCDEF";
-    memcpy(my_address->salt, salt, SALT_LEN);
+    strncpy(my_address->salt, salt, SALT_LEN);
+    my_address->salt[SALT_LEN-1] = '\0';
+    strncpy(my_address->original_salt, salt, SALT_LEN);
+    my_address->original_salt[SALT_LEN-1] = '\0';
 
     // Per protocol: "user-remembered passwords salted and hashed"
     hashdata_t initial_sig;
     get_signature(password, salt, &initial_sig);
     memcpy(my_address->signature, initial_sig, SHA256_HASH_SIZE);
+    memcpy(my_address->user_signature, initial_sig, SHA256_HASH_SIZE);
+    
+    // Store password for later signature regeneration (Python compatibility)
+    strncpy(my_address->password, password, PASSWORD_LEN - 1);
+    my_address->password[PASSWORD_LEN - 1] = '\0';
 
     pthread_mutex_lock(&network_mutex);
     add_peer_to_network(my_address->ip, my_address->port, my_address->signature, salt);
