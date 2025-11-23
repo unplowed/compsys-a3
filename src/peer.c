@@ -613,10 +613,11 @@ void get_file_from_peer(char *peer_ip, int peer_port, char *to_get){
     }
 
     // write data in order
-    
     for (int i = 0; i < blocks_recieved; i++) {
       fwrite(data[i].data, 1, data[i].length, fp);
+      free(data[i].data);
     }
+    free(data);
 
     fclose(fp);
     close(peer_fd); // Protocol: close connection after response
